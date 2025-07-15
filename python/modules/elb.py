@@ -4,6 +4,17 @@ def list_elbs(session):
     elb_data = []
     try:
         elb_client = session.client('elbv2')
+        ec2_client = session.client('ec2')
+
+        # 전체 Subnet ID → Name 매핑 미리 수집
+        subnet_name_map = {}
+        subnets = exponential_backoff(ec2_client.describe_subnets)
+        for subnet in subnets['Subnets']:
+            subnet_id = subnet['SubnetId']
+            name_tag = next((tag['Value'] for tag in subnet.get('Tags', []) if tag['Key'] == 'Name'), '-')
+            subnet_name_map[subnet_id] = name_tag
+
+        # ELB 목록 가져오기
         paginator = elb_client.get_paginator('describe_load_balancers')
         response_iterator = paginator.paginate()
 
@@ -16,17 +27,26 @@ def list_elbs(session):
                 lb_type = elb['Type']
                 availability_zones = ', '.join([az['ZoneName'] for az in elb['AvailabilityZones']])
 
+                # Subnet ID + Name 표시
+                subnet_entries = []
+                for az in elb['AvailabilityZones']:
+                    subnet_id = az['SubnetId']
+                    subnet_name = subnet_name_map.get(subnet_id, '-')
+                    subnet_entries.append(f"{subnet_id} ({subnet_name})")
+                subnet_str = ', '.join(subnet_entries)
+
                 # ELB Security Groups
                 security_groups = elb.get('SecurityGroups', [])
                 security_groups_str = ', '.join(security_groups)
 
                 # Cross-Zone Load Balancing, Stickiness, Access Logs and Tags
-                cross_zone = '-'
-                stickiness = '-'
-                access_logs = '-'
+                cross_zone, stickiness, access_logs = '-', '-', '-'
 
                 try:
-                    attributes = exponential_backoff(elb_client.describe_load_balancer_attributes, LoadBalancerArn=elb['LoadBalancerArn'])
+                    attributes = exponential_backoff(
+                        elb_client.describe_load_balancer_attributes,
+                        LoadBalancerArn=elb['LoadBalancerArn']
+                    )
                     for attr in attributes['Attributes']:
                         if attr['Key'] == 'load_balancing.cross_zone.enabled':
                             cross_zone = attr['Value']
@@ -37,7 +57,10 @@ def list_elbs(session):
 
                 # ELB Tags
                 try:
-                    tags_response = exponential_backoff(elb_client.describe_tags, ResourceArns=[elb['LoadBalancerArn']])
+                    tags_response = exponential_backoff(
+                        elb_client.describe_tags,
+                        ResourceArns=[elb['LoadBalancerArn']]
+                    )
                     tags = {tag['Key']: tag['Value'] for tag in tags_response['TagDescriptions'][0]['Tags']}
                     tags_str = ', '.join([f"{k}: {v}" for k, v in tags.items()])
                 except Exception as e:
@@ -51,6 +74,7 @@ def list_elbs(session):
                     'Scheme': scheme,
                     'Type': lb_type,
                     'AZ': availability_zones,
+                    'Subnet (ID and Name)': subnet_str,
                     'ELB Security Group ID': security_groups_str,
                     'Cross-Zone Load Balancing': cross_zone,
                     'Stickiness': stickiness,

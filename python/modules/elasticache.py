@@ -14,16 +14,16 @@ def list_elasticache_clusters(session):
             name_tag = next((tag['Value'] for tag in subnet.get('Tags', []) if tag['Key'] == 'Name'), '-')
             subnet_name_map[subnet_id] = name_tag
 
-        # Subnet Group → [SubnetId, SubnetName] 매핑
-        subnet_group_map = {}
+        # Subnet Group → Subnet IDs / Subnet Names 매핑
+        subnet_id_map = {}
+        subnet_name_list_map = {}
         subnet_groups_resp = exponential_backoff(elasticache_client.describe_cache_subnet_groups)
         for group in subnet_groups_resp.get('CacheSubnetGroups', []):
             group_name = group['CacheSubnetGroupName']
-            subnet_entries = [
-                f"{sn['SubnetIdentifier']} ({subnet_name_map.get(sn['SubnetIdentifier'], '-')})"
-                for sn in group.get('Subnets', [])
-            ]
-            subnet_group_map[group_name] = subnet_entries
+            subnet_ids = [sn['SubnetIdentifier'] for sn in group.get('Subnets', [])]
+            subnet_names = [subnet_name_map.get(sn_id, '-') for sn_id in subnet_ids]
+            subnet_id_map[group_name] = subnet_ids
+            subnet_name_list_map[group_name] = subnet_names
 
         # 클러스터 조회
         paginator = elasticache_client.get_paginator('describe_cache_clusters')
@@ -37,8 +37,8 @@ def list_elasticache_clusters(session):
                 region = session.region_name
                 engine = cluster.get('Engine', '-')
                 subnet_group = cluster.get('CacheSubnetGroupName', '-')
-                subnet_info = subnet_group_map.get(subnet_group, ['-'])
-                subnet_info_str = ', '.join(subnet_info)
+                subnet_ids = subnet_id_map.get(subnet_group, ['-'])
+                subnet_names = subnet_name_list_map.get(subnet_group, ['-'])
 
                 parameter_group = cluster.get('CacheParameterGroup', {}).get('CacheParameterGroupName', '-')
                 security_groups = ', '.join([sg.get('SecurityGroupId', '-') for sg in cluster.get('SecurityGroups', [])])
@@ -69,7 +69,8 @@ def list_elasticache_clusters(session):
                     'Region': region,
                     'Engine': engine,
                     'Subnet Group': subnet_group,
-                    'Subnet (ID and Name)': subnet_info_str,
+                    'Subnet ID': ', '.join(subnet_ids),
+                    'Subnet Name': ', '.join(subnet_names),
                     'Security Group ID': security_groups,
                     'Parameter Group': parameter_group,
                     'Cluster Mode': cluster_mode,

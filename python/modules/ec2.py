@@ -58,7 +58,6 @@ def list_ec2_instances(session):
 
                 subnet_id = instance.get('SubnetId', '-')
                 subnet_name = subnet_name_map.get(subnet_id, '-')
-                subnet_display = f"{subnet_id} ({subnet_name})" if subnet_id != '-' else '-'
 
                 security_groups = instance.get('SecurityGroups', [])
                 security_groups_parsed = ', '.join([group['GroupName'] for group in security_groups])
@@ -82,7 +81,8 @@ def list_ec2_instances(session):
                     'State': instance['State']['Name'],
                     'SSM Managed': 'Yes' if ssm_managed else 'No',
                     'VPC ID': instance.get('VpcId', '-'),
-                    'Subnet (ID and Name)': subnet_display,
+                    'Subnet ID': subnet_id,
+                    'Subnet Name': subnet_name,
                     'Availability Zone': instance['Placement']['AvailabilityZone'],
                     'Key Name': key_name,
                     'IAM Role': iam_role_name,

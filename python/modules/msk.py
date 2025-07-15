@@ -25,7 +25,7 @@ def list_kafka_clusters(session):
                 cluster_status = cluster.get('State', '-')
 
                 subnet_ids = []
-                subnet_strs = []
+                subnet_names = []
                 security_groups = []
                 broker_instance_type = '-'
                 brokers_per_az = 0
@@ -44,7 +44,7 @@ def list_kafka_clusters(session):
                         broker_node_group_info = info.get('BrokerNodeGroupInfo', {})
 
                         subnet_ids = broker_node_group_info.get('ClientSubnets', [])
-                        subnet_strs = [f"{sid} ({subnet_name_map.get(sid, '-')})" for sid in subnet_ids]
+                        subnet_names = [subnet_name_map.get(sid, '-') for sid in subnet_ids]
 
                         security_groups = broker_node_group_info.get('SecurityGroups', [])
                         broker_instance_type = broker_node_group_info.get('InstanceType', '-')
@@ -63,7 +63,8 @@ def list_kafka_clusters(session):
                     'Cluster Name': cluster_name,
                     'Kafka Version': kafka_version,
                     'Status': cluster_status,
-                    'Subnet (ID and Name)': ', '.join(subnet_strs) if subnet_strs else '-',
+                    'Subnet ID': ', '.join(subnet_ids) if subnet_ids else '-',
+                    'Subnet Name': ', '.join(subnet_names) if subnet_names else '-',
                     'Security Group IDs': ', '.join(security_groups) if security_groups else '-',
                     'Broker Instance Type': broker_instance_type,
                     'Brokers per AZ': brokers_per_az,

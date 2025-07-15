@@ -66,10 +66,10 @@ def list_auto_scaling_groups(session):
                         print(f"Error retrieving target group info for {tg_arn}: {e}")
                 target_groups_str = ', '.join(target_groups)
 
-                # Subnet IDs + Names
-                raw_subnet_ids = asg.get('VPCZoneIdentifier', '').split(',')
-                subnet_strs = [f"{sid} ({subnet_name_map.get(sid, '-')})" for sid in raw_subnet_ids if sid]
-                subnet_info_str = ', '.join(subnet_strs)
+                # Subnet IDs + Names (separate fields)
+                raw_subnet_ids = [sid for sid in asg.get('VPCZoneIdentifier', '').split(',') if sid]
+                subnet_ids_str = ', '.join(raw_subnet_ids)
+                subnet_names_str = ', '.join([subnet_name_map.get(sid, '-') for sid in raw_subnet_ids])
 
                 asg_data.append({
                     'Name': name,
@@ -80,7 +80,8 @@ def list_auto_scaling_groups(session):
                     'Security Group ID': security_groups_str,
                     'Load Balancer Target Groups': target_groups_str,
                     'AZ': availability_zones,
-                    'Subnet (ID and Name)': subnet_info_str,
+                    'Subnet ID': subnet_ids_str,
+                    'Subnet Name': subnet_names_str,
                     'Desired Capacity': desired_capacity,
                     'Min': min_size,
                     'Max': max_size

@@ -65,6 +65,7 @@ RESOURCE_MAP = {
     "cloudfront": list_cloudfront_distributions,
     "s3": list_s3_buckets,
     "lamda": list_lambda_functions,
+    "iam-role": list_iam_roles,
     "acm": list_acm_certificates,
     "kms": list_kms_keys,
     "secrets-manager": list_secrets_manager,

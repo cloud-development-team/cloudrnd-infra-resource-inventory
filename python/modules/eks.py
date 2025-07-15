@@ -30,10 +30,7 @@ def list_eks_clusters(session):
         )
 
         subnet_ids = cluster_info.get("resourcesVpcConfig", {}).get("subnetIds", [])
-        subnet_info = [
-            f"{sid} ({subnet_name_map.get(sid, '-')})" for sid in subnet_ids
-        ]
-        subnet_info_str = ', '.join(subnet_info)
+        subnet_names = [subnet_name_map.get(sid, '-') for sid in subnet_ids]
 
         result.append({
             "Cluster Name": cluster_name,
@@ -42,7 +39,8 @@ def list_eks_clusters(session):
             "Endpoint": cluster_info.get("endpoint", "-"),
             "Role ARN": cluster_info.get("roleArn", "-"),
             "VPC ID": cluster_info.get("resourcesVpcConfig", {}).get("vpcId", "-"),
-            "Subnet (ID and Name)": subnet_info_str,
+            "Subnet ID": ', '.join(subnet_ids),
+            "Subnet Name": ', '.join(subnet_names),
             "Security Group IDs": ", ".join(
                 cluster_info.get("resourcesVpcConfig", {}).get("securityGroupIds", [])
             ),

@@ -22,17 +22,16 @@ def list_opensearch_clusters(session):
             DomainName=domain_name
         ).get("DomainStatus", {})
 
-        # Subnet ID + Name 표시
         subnet_ids = domain_info.get("VPCOptions", {}).get("SubnetIds", [])
-        subnet_strs = [f"{sid} ({subnet_name_map.get(sid, '-')})" for sid in subnet_ids]
-        subnet_summary = ', '.join(subnet_strs)
+        subnet_names = [subnet_name_map.get(sid, '-') for sid in subnet_ids]
 
         result.append({
             "Domain Name": domain_name,
             "Engine Version": domain_info.get("EngineVersion", "-"),
             "Endpoint": domain_info.get("Endpoint", "-"),
             "VPC ID": domain_info.get("VPCOptions", {}).get("VPCId", "-"),
-            "Subnet (ID and Name)": subnet_summary,
+            "Subnet ID": ', '.join(subnet_ids),
+            "Subnet Name": ', '.join(subnet_names),
             "Instance Type": domain_info.get("ClusterConfig", {}).get("InstanceType", "-"),
             "Instance Count": domain_info.get("ClusterConfig", {}).get("InstanceCount", "-"),
             "Dedicated Master": domain_info.get("ClusterConfig", {}).get("DedicatedMasterEnabled", False),

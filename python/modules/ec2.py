@@ -24,6 +24,7 @@ def list_ec2_instances(session):
 
         for reservation in instances.get('Reservations', []):
             for instance in reservation.get('Instances', []):
+                # SSM 관리 여부 확인
                 def ssm_check():
                     return ssm_client.describe_instance_information(Filters=[
                         {'Key': 'InstanceIds', 'Values': [instance['InstanceId']]}
@@ -32,9 +33,10 @@ def list_ec2_instances(session):
                     ssm_response = exponential_backoff(ssm_check)
                     ssm_managed = len(ssm_response.get('InstanceInformationList', [])) > 0
                 except Exception as e:
-                    print(f"Error checking SSM management for instance {instance['InstanceId']}: {e}")
+                    print(f"Error checking SSM for {instance['InstanceId']}: {e}")
                     ssm_managed = False
 
+                # EBS 볼륨 정보
                 volumes_info = []
                 for device in instance.get('BlockDeviceMappings', []):
                     if 'Ebs' in device:
@@ -47,29 +49,39 @@ def list_ec2_instances(session):
                                 "Size (GB)": volume['Volumes'][0]['Size']
                             })
                         except Exception as e:
-                            print(f"Error retrieving volume information for volume {device['Ebs']['VolumeId']}: {e}")
+                            print(f"Error retrieving volume info for {device['Ebs']['VolumeId']}: {e}")
 
                 volumes = ', '.join([vol['VolumeId'] for vol in volumes_info])
                 volume_sizes = ', '.join([f"{vol['Size (GB)']} GB" for vol in volumes_info])
 
+                # 태그 파싱
                 tags = instance.get('Tags', [])
                 tags_parsed = ', '.join([f"{tag['Key']}: {tag['Value']}" for tag in tags])
                 instance_name = next((tag['Value'] for tag in tags if tag['Key'] == 'Name'), '-')
 
+                # 서브넷 이름
                 subnet_id = instance.get('SubnetId', '-')
                 subnet_name = subnet_name_map.get(subnet_id, '-')
 
+                # 보안 그룹, 키페어, IAM 역할
                 security_groups = instance.get('SecurityGroups', [])
-                security_groups_parsed = ', '.join([group['GroupName'] for group in security_groups])
+                security_groups_parsed = ', '.join([g['GroupName'] for g in security_groups])
                 key_name = instance.get('KeyName', '-')
-
                 iam_instance_profile = instance.get('IamInstanceProfile', {})
                 iam_role_name = '-'
                 if 'Arn' in iam_instance_profile:
-                    iam_role_arn = iam_instance_profile['Arn']
-                    iam_role_name = iam_role_arn.split('/')[-1]
+                    iam_role_name = iam_instance_profile['Arn'].split('/')[-1]
 
+                # AMI ID 및 AMI Name 조회
                 image_id = instance.get('ImageId', '-')
+                try:
+                    def ami_info():
+                        return ec2_client.describe_images(ImageIds=[image_id])
+                    images = exponential_backoff(ami_info).get('Images', [])
+                    ami_name = images[0].get('Name', '-') if images else '-'
+                except Exception as e:
+                    print(f"Error retrieving AMI info for {image_id}: {e}")
+                    ami_name = '-'
 
                 ec2_data.append({
                     'Account ID': account_id,
@@ -89,7 +101,8 @@ def list_ec2_instances(session):
                     'Private IP Address': instance.get('PrivateIpAddress', '-'),
                     'Public IP Address': instance.get('PublicIpAddress', '-'),
                     'Launch Time': instance['LaunchTime'].strftime("%Y-%m-%d %H:%M:%S"),
-                    'Image ID': image_id,
+                    'AMI ID': image_id,
+                    'AMI Name': ami_name,
                     'Volumes': volumes,
                     'Volume Sizes': volume_sizes,
                     'Security Groups': security_groups_parsed,

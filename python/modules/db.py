@@ -29,21 +29,17 @@ def list_db_clusters(session):
             subnet_group_id_to_ids[group_name] = subnet_ids
             subnet_group_id_to_names[group_name] = subnet_names
 
-        # 클러스터별 DB Type / Storage 합산 준비
-        cluster_to_db_types = defaultdict(set)    # cluster_id -> {db.t3.medium, ...}
-        cluster_to_storage = defaultdict(int)     # cluster_id -> total AllocatedStorage(GB)
+        # 클러스터별 DB Type 집계 (인스턴스 타입)
+        cluster_to_db_types = defaultdict(set)     # cluster_id -> {db.r6g.large, ...}
 
         instances = exponential_backoff(rds_client.describe_db_instances)
         for inst in instances.get('DBInstances', []):
             cluster_id = inst.get('DBClusterIdentifier')  # 단일 인스턴스(RDS)면 None
             if not cluster_id:
-                continue
+                continue  # 여기서는 Cluster 인벤토리만 보므로 단일 인스턴스는 스킵
 
             db_class = inst.get('DBInstanceClass', '-')
-            allocated = inst.get('AllocatedStorage', 0) or 0
-
             cluster_to_db_types[cluster_id].add(db_class)
-            cluster_to_storage[cluster_id] += allocated
 
         # 클러스터 조회
         clusters = exponential_backoff(rds_client.describe_db_clusters)['DBClusters']
@@ -70,10 +66,13 @@ def list_db_clusters(session):
             deletion_protection = 'Enabled' if cluster.get('DeletionProtection', False) else 'Disabled'
             tls_enabled = 'Enabled' if cluster.get('IAMDatabaseAuthenticationEnabled', False) else 'Disabled'
 
-            # 여기서 DB Type / Storage 정보 매핑
+            # DB Type 정보 (클러스터 내 인스턴스 타입 집합)
             db_types = ', '.join(sorted(cluster_to_db_types.get(cluster_name, {'-'})))
-            total_storage_gib = cluster_to_storage.get(cluster_name, 0)
-            total_storage_gib = total_storage_gib if total_storage_gib > 0 else '-'
+
+            # Writer / Reader 개수 계산 (DBClusterMembers 기반)
+            members = cluster.get('DBClusterMembers', [])
+            writer_count = sum(1 for m in members if m.get('IsClusterWriter'))
+            reader_count = len(members) - writer_count
 
             rds_data.append({
                 'Cluster Name': cluster_name,
@@ -82,7 +81,8 @@ def list_db_clusters(session):
                 'Engine Version': engine_version,
                 'RDS Type': rds_type,
                 'DB Type': db_types,                     # ex) db.r6g.large, db.r6g.xlarge
-                'Allocated Storage (GiB)': total_storage_gib,
+                'Writer Count': writer_count,            # ex) 1
+                'Reader Count': reader_count,            # ex) 2
                 'Subnet Group ID': subnet_group_id,
                 'Subnet ID': ', '.join(subnet_ids),
                 'Subnet Name': ', '.join(subnet_names),

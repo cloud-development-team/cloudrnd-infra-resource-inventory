@@ -1,3 +1,4 @@
+from collections import defaultdict
 from modules.common import exponential_backoff
 
 def list_db_clusters(session):
@@ -11,7 +12,10 @@ def list_db_clusters(session):
         subnets = exponential_backoff(ec2_client.describe_subnets)
         for subnet in subnets['Subnets']:
             subnet_id = subnet['SubnetId']
-            name_tag = next((tag['Value'] for tag in subnet.get('Tags', []) if tag['Key'] == 'Name'), '-')
+            name_tag = next(
+                (tag['Value'] for tag in subnet.get('Tags', []) if tag['Key'] == 'Name'),
+                '-'
+            )
             subnet_name_map[subnet_id] = name_tag
 
         # Subnet Group ID → [Subnet ID], [Subnet Name] 매핑
@@ -25,6 +29,23 @@ def list_db_clusters(session):
             subnet_group_id_to_ids[group_name] = subnet_ids
             subnet_group_id_to_names[group_name] = subnet_names
 
+        # 클러스터별 DB Type / Storage 합산 준비
+        cluster_to_db_types = defaultdict(set)    # cluster_id -> {db.t3.medium, ...}
+        cluster_to_storage = defaultdict(int)     # cluster_id -> total AllocatedStorage(GB)
+
+        instances = exponential_backoff(rds_client.describe_db_instances)
+        for inst in instances.get('DBInstances', []):
+            cluster_id = inst.get('DBClusterIdentifier')  # 단일 인스턴스(RDS)면 None
+            if not cluster_id:
+                continue
+
+            db_class = inst.get('DBInstanceClass', '-')
+            allocated = inst.get('AllocatedStorage', 0) or 0
+
+            cluster_to_db_types[cluster_id].add(db_class)
+            cluster_to_storage[cluster_id] += allocated
+
+        # 클러스터 조회
         clusters = exponential_backoff(rds_client.describe_db_clusters)['DBClusters']
 
         for cluster in clusters:
@@ -44,9 +65,15 @@ def list_db_clusters(session):
 
             automated_backups = 'Enabled' if cluster.get('BackupRetentionPeriod', 0) > 0 else 'Disabled'
             encryption_at_rest = 'Enabled' if cluster.get('StorageEncrypted', False) else 'Disabled'
-            cloudwatch_logs = ', '.join(cluster.get('EnabledCloudwatchLogsExports', [])) if 'EnabledCloudwatchLogsExports' in cluster else 'Disabled'
+            cloudwatch_logs = ', '.join(cluster.get('EnabledCloudwatchLogsExports', [])) \
+                if 'EnabledCloudwatchLogsExports' in cluster else 'Disabled'
             deletion_protection = 'Enabled' if cluster.get('DeletionProtection', False) else 'Disabled'
             tls_enabled = 'Enabled' if cluster.get('IAMDatabaseAuthenticationEnabled', False) else 'Disabled'
+
+            # 여기서 DB Type / Storage 정보 매핑
+            db_types = ', '.join(sorted(cluster_to_db_types.get(cluster_name, {'-'})))
+            total_storage_gib = cluster_to_storage.get(cluster_name, 0)
+            total_storage_gib = total_storage_gib if total_storage_gib > 0 else '-'
 
             rds_data.append({
                 'Cluster Name': cluster_name,
@@ -54,6 +81,8 @@ def list_db_clusters(session):
                 'Status': status,
                 'Engine Version': engine_version,
                 'RDS Type': rds_type,
+                'DB Type': db_types,                     # ex) db.r6g.large, db.r6g.xlarge
+                'Allocated Storage (GiB)': total_storage_gib,
                 'Subnet Group ID': subnet_group_id,
                 'Subnet ID': ', '.join(subnet_ids),
                 'Subnet Name': ', '.join(subnet_names),

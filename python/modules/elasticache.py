@@ -1,10 +1,31 @@
 from modules.common import exponential_backoff
 
-# Corrected ElastiCache clusters listing function
 def list_elasticache_clusters(session):
     elasticache_data = []
     try:
         elasticache_client = session.client('elasticache')
+        ec2_client = session.client('ec2')
+
+        # Subnet ID → Name 매핑
+        subnet_name_map = {}
+        subnets = exponential_backoff(ec2_client.describe_subnets)
+        for subnet in subnets['Subnets']:
+            subnet_id = subnet['SubnetId']
+            name_tag = next((tag['Value'] for tag in subnet.get('Tags', []) if tag['Key'] == 'Name'), '-')
+            subnet_name_map[subnet_id] = name_tag
+
+        # Subnet Group → Subnet IDs / Subnet Names 매핑
+        subnet_id_map = {}
+        subnet_name_list_map = {}
+        subnet_groups_resp = exponential_backoff(elasticache_client.describe_cache_subnet_groups)
+        for group in subnet_groups_resp.get('CacheSubnetGroups', []):
+            group_name = group['CacheSubnetGroupName']
+            subnet_ids = [sn['SubnetIdentifier'] for sn in group.get('Subnets', [])]
+            subnet_names = [subnet_name_map.get(sn_id, '-') for sn_id in subnet_ids]
+            subnet_id_map[group_name] = subnet_ids
+            subnet_name_list_map[group_name] = subnet_names
+
+        # 클러스터 조회
         paginator = elasticache_client.get_paginator('describe_cache_clusters')
         response_iterator = paginator.paginate(ShowCacheNodeInfo=True)
 
@@ -16,23 +37,29 @@ def list_elasticache_clusters(session):
                 region = session.region_name
                 engine = cluster.get('Engine', '-')
                 subnet_group = cluster.get('CacheSubnetGroupName', '-')
+                subnet_ids = subnet_id_map.get(subnet_group, ['-'])
+                subnet_names = subnet_name_list_map.get(subnet_group, ['-'])
+
                 parameter_group = cluster.get('CacheParameterGroup', {}).get('CacheParameterGroupName', '-')
                 security_groups = ', '.join([sg.get('SecurityGroupId', '-') for sg in cluster.get('SecurityGroups', [])])
                 cluster_mode = cluster.get('CacheClusterStatus', '-')
-                multi_az = cluster.get('PreferredAvailabilityZone', '-') if cluster.get('Engine') == 'redis' else '-'
+                multi_az = cluster.get('PreferredAvailabilityZone', '-') if engine == 'redis' else '-'
                 shard = cluster.get('NumCacheNodes', '-')
                 node = len(cluster.get('CacheNodes', []))
                 backup = 'Enabled' if cluster.get('SnapshotRetentionLimit', 0) > 0 else 'Disabled'
-                encryption_at_rest = cluster.get('AtRestEncryptionEnabled', '-') if cluster.get('Engine') == 'redis' else '-'
-                auto_failover = cluster.get('AutoMinorVersionUpgrade', '-') if cluster.get('Engine') == 'redis' else '-'
+                encryption_at_rest = cluster.get('AtRestEncryptionEnabled', '-') if engine == 'redis' else '-'
+                auto_failover = cluster.get('AutoMinorVersionUpgrade', '-') if engine == 'redis' else '-'
 
-                # Corrected ARN retrieval for tags
+                # 태그 조회
                 arn = cluster.get('ARN', None)
                 if arn:
                     try:
-                        tags_response = exponential_backoff(elasticache_client.list_tags_for_resource, ResourceName=arn)
+                        tags_response = exponential_backoff(
+                            elasticache_client.list_tags_for_resource,
+                            ResourceName=arn
+                        )
                         tags = ', '.join([f"{tag['Key']}={tag['Value']}" for tag in tags_response.get('TagList', [])])
-                    except Exception as e:
+                    except Exception:
                         tags = '-'
                 else:
                     tags = '-'
@@ -41,7 +68,9 @@ def list_elasticache_clusters(session):
                     'Cluster Name': cluster_name,
                     'Region': region,
                     'Engine': engine,
-                    'Subnet Name': subnet_group,
+                    'Subnet Group': subnet_group,
+                    'Subnet ID': ', '.join(subnet_ids),
+                    'Subnet Name': ', '.join(subnet_names),
                     'Security Group ID': security_groups,
                     'Parameter Group': parameter_group,
                     'Cluster Mode': cluster_mode,
@@ -56,5 +85,5 @@ def list_elasticache_clusters(session):
 
     except Exception as e:
         print(f"Error retrieving ElastiCache clusters: {e}")
-    return elasticache_data
 
+    return elasticache_data

@@ -18,6 +18,7 @@ from modules.vpc import list_vpcs
 from modules.subnet import list_subnets
 from modules.nacl import list_nacls
 from modules.ec2 import list_ec2_instances
+from modules.ebs import list_ebs_volumes
 from modules.asg import list_auto_scaling_groups
 from modules.elb import list_elbs
 from modules.tg import list_target_groups
@@ -50,6 +51,7 @@ RESOURCE_MAP = {
     "eks": list_eks_clusters,
     "asg": list_auto_scaling_groups,
     "ec2": list_ec2_instances,
+    "ebs": list_ebs_volumes,
     "security-groups": list_security_groups,
     "nacl": list_nacls,
     "elbs": list_elbs,
@@ -63,6 +65,7 @@ RESOURCE_MAP = {
     "cloudfront": list_cloudfront_distributions,
     "s3": list_s3_buckets,
     "lamda": list_lambda_functions,
+    "iam-role": list_iam_roles,
     "acm": list_acm_certificates,
     "kms": list_kms_keys,
     "secrets-manager": list_secrets_manager,
